@@ -9,8 +9,7 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 load_dotenv()
 
-# Fixed typo: 'temparature' -> 'temperature'
-model = ChatGoogleGenerativeAI(model="gemini-3.7-flash", temperature=0.7)
+model = ChatGoogleGenerativeAI(model="gemini-3-flash-preview", temperature=0.7)
 
 # Fixed typos in Literal values ("Postive"/"Nagative" -> "Positive"/"Negative")
 class Feedback(BaseModel):
@@ -28,7 +27,12 @@ prompt1 = PromptTemplate(
     partial_variables={"format_instruction": parser2.get_format_instructions()}
 )
 
-classifier_chain = prompt1 | model | parser2
+classifier_chain = (
+    RunnableParallel(
+        feedback=lambda x: x["feedback"],
+        sentiment=prompt1 | model | parser2
+    )
+)
 
 prompt2 = PromptTemplate(
     template='Write a response to the following positive feedback given by the user in under 3 lines:\n {feedback}',
@@ -44,8 +48,14 @@ prompt3 = PromptTemplate(
 # Note: RunnableBranch passes the dictionary input down, so we wrap prompt2/prompt3 
 # in a lambda or a dictionary mapper to match their expected input key '{feedback}'
 branch_chain = RunnableBranch(
-    (lambda x: x.sentiment == 'Positive', lambda x: {'feedback': text_input} | prompt2 | model | parser1),
-    (lambda x: x.sentiment == 'Negative', lambda x: {'feedback': text_input} | prompt3 | model | parser1),
+    (
+        lambda x: x["sentiment"].sentiment == "Positive",
+        prompt2 | model | parser1
+    ),
+    (
+        lambda x: x["sentiment"].sentiment == "Negative",
+        prompt3 | model | parser1
+    ),
     RunnableLambda(lambda x: "could not find sentiment")
 )
 
@@ -64,4 +74,5 @@ final_chain = classifier_chain | branch_chain
 
 # Fixed input key: Changed 'text' to 'feedback' to match prompt1
 result = final_chain.invoke({'feedback': text_input})
+final_chain.get_graph().print_ascii()
 print(result)
